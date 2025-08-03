@@ -9,14 +9,18 @@ crate-type = ["cdylib", "lib"]
 name = "expense_tracker"
 
 [features]
-default = []
-cpi = ["no-entrypoint"]
+default = ["cpi", "custom-heap", "custom-panic", "anchor-debug"]
+cpi = []
 no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build"]
-
+custom-heap = []
+custom-panic = []
+anchor-debug = []
 
 [dependencies]
 anchor-lang = "0.31.1"
-
+# should be the same version like anchor-lang uses
+# it help resolve compilation error when adding a anchor-debug feature, that added to prevent warning error.
+solana-program = "2"
