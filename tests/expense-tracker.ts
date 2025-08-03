@@ -182,7 +182,6 @@ describe("expense-tracker", () => {
         // the code does not contain any logic for transferring SOL between accounts,
         // so the pda balance should not change.
         assert.equal(programFinalBalance, programInitialBalance);
-        assert.equal(userInitialBalance, userFinalBalance);
         assert.isTrue(
             userInitialBalance >= userFinalBalance,
             "User's balance should have decreased by a transaction fee"
@@ -202,4 +201,75 @@ describe("expense-tracker", () => {
 
         console.log("Your transaction signature", txSignature);
     });
+
+    it("Delete Expense", async () => {
+        // Check initial balances
+        const userInitialBalance = await getBalance(user.publicKey);
+        const programInitialBalance = await getBalance(program.programId);
+        const pdaInitialBalance = await getBalance(expenseAccountPDA);
+
+        console.log("--- BEFORE TRANSACTION ---");
+        console.log(`User balance: ${userInitialBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log(`Program balance: ${programInitialBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log(`PDA balance: ${pdaInitialBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log("--------------------------\n");
+
+        const modifiedMerchantName = "Petrol";
+        const modifiedAmount = new BN(12570);
+
+        // Call the deleteExpense instruction
+        const txSignature = await program.methods
+            // Invokes the deleteExpense method on the program.
+            .deleteExpense(expenseId)
+            // Explicitly lists the on-chain accounts needed for this instruction.
+            // This is a crucial step that tells the program which accounts to access.
+            .accounts({
+                expenseAccount: expenseAccountPDA,
+                authority: user.publicKey,
+                systemProgram: anchor.web3.SystemProgram.programId,
+            })
+            // Provides the user's keypair to sign the transaction, proving their authority.
+            .signers([user])
+            // Sends the transaction to the Solana network.
+            .rpc();
+
+        const latestBlockhash = await provider.connection.getLatestBlockhash();
+        await provider.connection.confirmTransaction({
+            signature: txSignature,
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        });
+
+        // Check balances after the transaction
+        const userFinalBalance = await getBalance(user.publicKey);
+        const programFinalBalance = await getBalance(program.programId);
+        const pdaFinalBalance = await getBalance(expenseAccountPDA);
+
+        console.log("--- AFTER TRANSACTION ---");
+        console.log(`User balance: ${userFinalBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log(`Program balance: ${programFinalBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log(`PDA balance: ${pdaFinalBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log("-------------------------\n");
+
+        assert.equal(programFinalBalance, programInitialBalance);
+        assert.isTrue(
+            userFinalBalance <= userInitialBalance + pdaInitialBalance,
+            "User's balance should be less than combined initial balance due to transaction fee"
+        );
+        assert.equal(pdaFinalBalance, 0);
+
+        console.log("Your transaction signature", txSignature);
+
+        try {
+            await program.account.expenseAccount.fetch(expenseAccountPDA);
+
+            assert.fail("The account was not deleted and a fetch call unexpectedly succeeded.");
+        } catch (error) {
+            const errorMessage = error.toString();
+
+            assert.include(errorMessage, "Account does not exist", "Expected 'Account does not exist' error.");
+
+            console.log("Account successfully deleted as expected.");
+        }
+    })
 });
