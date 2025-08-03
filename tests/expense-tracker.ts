@@ -130,4 +130,76 @@ describe("expense-tracker", () => {
 
         console.log("Your transaction signature", txSignature);
     });
+
+    it("Modify Expense", async () => {
+        // Check initial balances
+        const userInitialBalance = await getBalance(user.publicKey);
+        const programInitialBalance = await getBalance(program.programId);
+        const pdaInitialBalance = await getBalance(expenseAccountPDA);
+
+        console.log("--- BEFORE TRANSACTION ---");
+        console.log(`User balance: ${userInitialBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log(`Program balance: ${programInitialBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log(`PDA balance: ${pdaInitialBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log("--------------------------\n");
+
+        const modifiedMerchantName = "Petrol";
+        const modifiedAmount = new BN(12570);
+
+        // Call the modifyExpense instruction
+        const txSignature = await program.methods
+            // Invokes the modifyExpense method on the program.
+            .modifyExpense(expenseId, modifiedMerchantName, modifiedAmount)
+            // Explicitly lists the on-chain accounts needed for this instruction.
+            // This is a crucial step that tells the program which accounts to access.
+            .accounts({
+                expenseAccount: expenseAccountPDA,
+                authority: user.publicKey,
+                systemProgram: anchor.web3.SystemProgram.programId,
+            })
+            // Provides the user's keypair to sign the transaction, proving their authority.
+            .signers([user])
+            // Sends the transaction to the Solana network.
+            .rpc();
+
+        const latestBlockhash = await provider.connection.getLatestBlockhash();
+        await provider.connection.confirmTransaction({
+            signature: txSignature,
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        });
+
+        // Check balances after the transaction
+        const userFinalBalance = await getBalance(user.publicKey);
+        const programFinalBalance = await getBalance(program.programId);
+        const pdaFinalBalance = await getBalance(expenseAccountPDA);
+
+        console.log("--- AFTER TRANSACTION ---");
+        console.log(`User balance: ${userFinalBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log(`Program balance: ${programFinalBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log(`PDA balance: ${pdaFinalBalance / LAMPORTS_PER_SOL} SOL`);
+        console.log("-------------------------\n");
+        // the code does not contain any logic for transferring SOL between accounts,
+        // so the pda balance should not change.
+        assert.equal(programFinalBalance, programInitialBalance);
+        assert.equal(userInitialBalance, userFinalBalance);
+        assert.isTrue(
+            userInitialBalance >= userFinalBalance,
+            "User's balance should have decreased by a transaction fee"
+        );
+        assert.equal(pdaInitialBalance, pdaFinalBalance);
+
+        // Fetch the account data from the blockchain.
+        // Fetches the data from the PDA account that was just created.
+        // This is a key step for verifying the transaction's outcome.
+        const expenseAccount = await program.account.expenseAccount.fetch(expenseAccountPDA);
+
+        // Assertions to verify the fetched data.
+        assert.isTrue(expenseAccount.id.eq(expenseId), "The ID should match");
+        assert.equal(expenseAccount.merchantName, modifiedMerchantName, "The merchant name should match");
+        assert.isTrue(expenseAccount.amount.eq(modifiedAmount), "The amount should match");
+        assert.isTrue(expenseAccount.owner.equals(user.publicKey), "The owner should be the user's public key");
+
+        console.log("Your transaction signature", txSignature);
+    });
 });
