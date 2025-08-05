@@ -235,6 +235,84 @@ describe("expense-tracker", () => {
         }
     });
 
+    it("Fetch expenses by owner", async () => {
+        // At this point in the test suite, one expense account (ID 1) already exists for `user`.
+        // Let's create a second one to demonstrate fetching multiple accounts with the filter.
+        const secondExpenseId = new BN(2);
+        const secondMerchantName = "Grocery Store";
+        const secondAmount = new BN(25);
+
+        // Derive PDA for the second expense
+        const [secondExpensePDA] = anchor.web3.PublicKey.findProgramAddressSync(
+            [
+                anchor.utils.bytes.utf8.encode("expense"),
+                user.publicKey.toBuffer(),
+                secondExpenseId.toBuffer("le", 8),
+            ],
+            program.programId
+        );
+
+        // Create the second expense account
+        await program.methods
+            .initializeExpense(secondExpenseId, secondMerchantName, secondAmount)
+            .accounts({
+                expenseAccount: secondExpensePDA,
+                authority: user.publicKey,
+                systemProgram: anchor.web3.SystemProgram.programId,
+            })
+            .signers([user])
+            .rpc();
+
+        console.log("\nCreated a second expense account for filtering tests.");
+
+        // Now, perform the fetch operation using a `memcmp` filter.
+        // `memcmp` (memory compare) filters accounts based on their on-chain data.
+        // - offset: 8 (discriminator) + 8 (id) = 16. This is the byte position where the `owner` public key begins.
+        // - bytes: The Base58 representation of the public key we want to match.
+        const fetchedExpenses = await program.account.expenseAccount.all([
+            {
+                memcmp: {
+                    offset: 8 + 8,
+                    bytes: user.publicKey.toBase58(),
+                },
+            },
+        ]);
+
+        // Assertions to verify the filter worked correctly.
+        assert.equal(fetchedExpenses.length, 2, "Should fetch exactly two expense accounts for the user.");
+
+        // Verify that both fetched accounts indeed belong to the correct owner.
+        assert.isTrue(
+            fetchedExpenses.every(exp => exp.account.owner.equals(user.publicKey)),
+            "All fetched expenses must belong to the correct owner."
+        );
+
+        // For good measure, let's find and verify our specific expenses in the result.
+        const originalExpense = fetchedExpenses.find(exp => exp.account.id.eq(expenseId));
+        const newExpense = fetchedExpenses.find(exp => exp.account.id.eq(secondExpenseId));
+
+        assert.isDefined(originalExpense, "The original expense (ID 1) should be in the fetched list.");
+        assert.equal(originalExpense.account.merchantName, "Petrol", "The original expense's merchant name should be the modified one.");
+
+        assert.isDefined(newExpense, "The newly created expense (ID 2) should be in the fetched list.");
+        assert.equal(newExpense.account.merchantName, secondMerchantName, "The new expense's merchant name should be correct.");
+
+        console.log("✅ Successfully fetched and filtered expenses by owner.");
+
+        // Clean up the second expense so it doesn't interfere with the `Delete Expense` test.
+        // The `Delete Expense` test is hardcoded to delete the expense with `expenseId` (ID 1).
+        await program.methods
+            .deleteExpense(secondExpenseId)
+            .accounts({
+                expenseAccount: secondExpensePDA,
+                authority: user.publicKey,
+            })
+            .signers([user])
+            .rpc();
+
+        console.log("Cleaned up the second expense account.");
+    });
+
     it("Delete Expense", async () => {
         // Check initial balances
         const userInitialBalance = await getBalance(user.publicKey);
