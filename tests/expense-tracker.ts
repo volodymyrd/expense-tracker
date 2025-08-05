@@ -202,6 +202,39 @@ describe("expense-tracker", () => {
         console.log("Your transaction signature", txSignature);
     });
 
+    it("Fails to modify with wrong ID", async () => {
+        // The correct ID for our existing PDA is `expenseId` (value: 1).
+        // We'll create a new BN with a different value to trigger the error.
+        const wrongExpenseId = new BN(2);
+        const newMerchantName = "Wrong Store";
+        const newAmount = new BN(50);
+
+        try {
+            // We are calling `modifyExpense` with `wrongExpenseId` (2),
+            // but the `expenseAccountPDA` was derived using the original `expenseId` (1).
+            // The on-chain program should detect this mismatch and throw our custom error.
+            await program.methods
+                .modifyExpense(wrongExpenseId, newMerchantName, newAmount)
+                .accounts({
+                    expenseAccount: expenseAccountPDA,
+                    authority: user.publicKey,
+                })
+                .signers([user])
+                .rpc();
+
+            assert.fail("The transaction should have failed with an IdMismatch error.");
+        } catch (error) {
+            assert.isDefined(error.error, "The error object should have an 'error' property");
+            const errorCode = error.error.errorCode;
+            assert.equal(errorCode.code, "ConstraintSeeds", "The error code should be ConstraintSeeds.");
+            assert.include(
+                error.error.errorMessage,
+                "A seeds constraint was violated",
+                "The error message should match the seeds constraint violation."
+            );
+        }
+    });
+
     it("Delete Expense", async () => {
         // Check initial balances
         const userInitialBalance = await getBalance(user.publicKey);

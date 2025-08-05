@@ -30,10 +30,23 @@ pub mod expense_tracker {
 
     pub fn modify_expense(
         ctx: Context<ModifyExpense>,
-        _id: u64,
+        id: u64,
         merchant_name: String,
         amount: u64,
     ) -> Result<()> {
+        // This is a "defense-in-depth" check.
+        // The primary validation that the correct expense account is being modified
+        // is handled by Anchor's `seeds` constraint on the `ModifyExpense` context.
+        // If a client were to pass a mismatched `id`, Anchor would fail the transaction
+        // with a `ConstraintSeeds` error before this instruction logic is ever executed.
+        // However, including this check provides an explicit, internal safeguard
+        // to ensure data integrity within the instruction itself.
+        require_eq!(
+            ctx.accounts.expense_account.id,
+            id,
+            ExpenseError::IdMismatch
+        );
+
         let expense_account = &mut ctx.accounts.expense_account;
         expense_account.merchant_name = merchant_name;
         expense_account.amount = amount;
@@ -111,4 +124,10 @@ pub struct ExpenseAccount {
     pub merchant_name: String,
     // The spent amount
     pub amount: u64,
+}
+
+#[error_code]
+pub enum ExpenseError {
+    #[msg("The provided ID does not match the one in the account.")]
+    IdMismatch,
 }
